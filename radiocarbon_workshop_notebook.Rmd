@@ -1,0 +1,160 @@
+---
+title: "Radiocarbon dating workshop: Bchron notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+In this notebook we go through how to fit an age depth model and get a simple estimate of a regression model for some sea level type data. This notebook uses the R package Bchron but later talks will show you how to use other packages for fitting age depth models and estimating sea level curves. 
+
+This demonstration only outlines a small part of Bchron's functionality. For more comprehensive documentation please see the Bchron [website](https://andrewcparnell.github.io/Bchron/) and full [vignette](https://andrewcparnell.github.io/Bchron/articles/Bchron.html). 
+
+This tutorial assumes that you know how to use R (e.g. how to load in data and run packages). The best way to run it is to install both R and Rstudio. Rstudio runs R in the background and will allow you to run the commands in this notebook.
+
+First, to install the Bchron package you need to run the following command, but only once:
+```{r, eval = FALSE}
+install.packages("Bchron")
+```
+
+Next, to start using the Bchron package you can run the command
+
+```{r}
+library(Bchron)
+library(ggplot2) # For plotting
+```
+
+## Calibrating radiocarbon dates
+
+Bchron will calibrate single or multiple dates under multiple (even user defined) calibration curves. By default, the intcal20, shcal20 and marine20 calibration curves are included (as are older calibration curves such as intcal13). You can calibrate a single radiocarbon date with, e.g.
+
+```{r}
+ages1 <- BchronCalibrate(
+  ages = 11553,
+  ageSds = 230,
+  calCurves = "intcal20",
+  ids = "Ox-123456"
+)
+summary(ages1)
+```
+
+If you provide depth information to the `BchronCalibrate` function it will create a plot with depth on the y-axis, e.g.:
+
+```{r}
+ages3 <- BchronCalibrate(
+  ages = c(3445, 11000),
+  ageSds = c(50, 200),
+  positions = c(100, 150),
+  calCurves = c("intcal20", "normal")
+)
+plot(ages3) +
+  labs(
+    x = "Age (years BP)",
+    y = "Depth (cm)",
+    title = "Two dates at different depths"
+  )
+```
+
+You can extend to have custom calibration curves, different colours, and other settings (see the [manual]((https://andrewcparnell.github.io/Bchron/articles/Bchron.html)). 
+
+## Running age-depth models
+
+The `Bchronology` function fits the age-depth model from Haslett and Parnell (2008). An illustrative data set is provided with the package, containing 27 dates of different types. It can be called in via:
+
+```{r}
+data(TestChronData)
+print(TestChronData)
+```
+
+The top date is from the present and has the calibration curve 'normal' as it is not a 14C date. This core can be run through Bchron via:
+
+```{r,results='hide'}
+TestChron <- with(
+  TestChronData,
+  Bchronology(
+    ages = ages,
+    ageSds = ageSds,
+    calCurves = calCurves,
+    positions = position,
+    positionThicknesses = thickness,
+    ids = id,
+    predictPositions = seq(0, 162, by = 1)
+  )
+)
+```
+
+There are other arguments you can supply to Bchronology, including the date the core was extracted, the outlier probabilities for each individual date, and the number of iterations for which to run the algorithm. For more details see:
+
+```{r,eval=FALSE}
+help(Bchronology)
+```
+
+Once run, the summary commands will show various output:
+```{r,eval=FALSE}
+summary(TestChron)
+```
+
+The summary command produces ages for each position supplied in the `predictPositions` argument above (output not shown as it's too long). Other commands provides convergence diagnostics and outlier probabilities. The `plot` command will produce an age-depth plot:
+
+```{r,fig.align='center',fig.width=6,fig.height=5}
+plot(TestChron, dateHeight = 10)
+```
+
+Finally, the `predict` command will produce predicted ages for a newly specified set of depths with optional thicknesses:
+
+```{r,results='hide'}
+predictAges <- predict(TestChron,
+  newPositions = c(150, 725, 1500),
+  newPositionThicknesses = c(5, 0, 20)
+)
+predictAges <- predict(TestChron,
+  newPositions = seq(0, 1500, by = 10)
+)
+```
+
+You can use the `predict` function to get predicted ages for the depths of your sea level markers.
+
+## Running RSL rate estimation
+
+The function `BchronRSL` will produce estimated relative sea level rates from a regression model taking into account the uncertainties in age provided by a `Bchronology` run as above. An example set of sea level markers is contained in:
+
+```{r}
+data(TestRSLData)
+print(TestRSLData)
+```
+
+These can be run through `BchronRSL` via:
+
+```{r,messages=FALSE, results='hide'}
+RSLchron <- with(
+  TestChronData,
+  Bchronology(
+    ages = ages,
+    ageSds = ageSds,
+    positions = position,
+    positionThicknesses = thickness,
+    ids = id,
+    calCurves = calCurves,
+    predictPositions = TestRSLData$Depth
+  )
+)
+RSLrun <- with(
+  TestRSLData,
+  BchronRSL(RSLchron,
+    RSLmean = RSL,
+    RSLsd = Sigma,
+    degree = 3
+  )
+)
+```
+
+The `Bchronology` run is as described in the previous section. The `BChronRSL` run takes this object, an estimate of the RSL means and standard deviations, and a value of degree (here 3 indicating cubic regression). They can then be summarised and plotted via:
+
+```{r}
+summary(RSLrun, type = "RSL", age_grid = seq(0, 2000, by = 250)) 
+plot(RSLrun, type = "RSL") + ggtitle("Relative sea level plot") +
+  labs(x = "Age cal years BP", y = "RSL (m)")
+plot(RSLrun, type = "rate") + ggtitle("Rate of RSL change") +
+  ylab("Rate (mm per year)")
+```
+
+See the help files for more options, including outputting parameter values, and plots of acceleration of RSL itself.
